@@ -47,22 +47,21 @@
     {
       "photos": [
         "car_3_1.jpg",
-        "car_3_2.jpg",
-        "car_3_3.jpg"
+        "car_3_2.jpg"
       ],
       "brand": "Lada",
-      "model": "Lada",
+      "model": "Vesta",
       "year": 2025,
-      "price": 10000,
-      "body_type": "Седан",
-      "engine_type": "Дизель",
-      "engine_volume": 1.99999,
-      "transmission": "Автомат",
-      "color": "Золотой",
-      "mileage": 20000,
-      "description": "Хорошее авто",
+      "price": 40000,
+      "body_type": "Универсал",
+      "engine_type": "Бензин",
+      "engine_volume": 12345.0,
+      "transmission": "Вариатор",
+      "color": "123",
+      "mileage": 1120319,
+      "description": "sdlkfsklfj",
       "features": [
-        "1"
+        "123"
       ],
       "id": 3,
       "is_available": true

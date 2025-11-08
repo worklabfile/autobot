@@ -79,6 +79,26 @@ def download_image_from_url(url, car_id, photo_index):
         logger.error(f"Ошибка скачивания изображения {url}: {e}")
         return None
 
+async def safe_edit_message_text(query, text, reply_markup=None, parse_mode=None):
+    """Безопасное редактирование сообщения с обработкой медиа"""
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception as e:
+        # Если не получилось отредактировать (например, сообщение с медиа), удаляем и отправляем новое
+        logger.warning(f"Не удалось отредактировать сообщение, отправляем новое: {e}")
+        try:
+            await query.message.delete()
+        except:
+            pass
+        # Получаем bot из query
+        bot = query.message.get_bot()
+        await bot.send_message(
+            chat_id=query.message.chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+
 def is_admin(user_id, username=None):
     """Проверка, является ли пользователь админом"""
     if isinstance(ADMIN_ID, str) and ADMIN_ID.startswith("@"):
@@ -185,16 +205,29 @@ def get_availability_keyboard(count):
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_filters")]
     ])
 
-def get_car_navigation_keyboard(car_index, total_cars):
+def get_car_navigation_keyboard(car_index, total_cars, photo_index=0, total_photos=1):
     kb = []
+    
+    # Навигация по фотографиям (если их больше одной)
+    if total_photos > 1:
+        photo_nav = []
+        if photo_index > 0:
+            photo_nav.append(InlineKeyboardButton("◀️ Фото", callback_data=f"photo_prev_{car_index}_{photo_index-1}"))
+        photo_nav.append(InlineKeyboardButton(f"📷 {photo_index+1}/{total_photos}", callback_data="current_photo"))
+        if photo_index < total_photos - 1:
+            photo_nav.append(InlineKeyboardButton("Фото ▶️", callback_data=f"photo_next_{car_index}_{photo_index+1}"))
+        kb.append(photo_nav)
+    
+    # Навигация по автомобилям
     nav = []
     if car_index > 0:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"prev_{car_index-1}"))
-    nav.append(InlineKeyboardButton(f"{car_index+1}/{total_cars}", callback_data="current"))
+        nav.append(InlineKeyboardButton("⬅️ Пред.", callback_data=f"prev_{car_index-1}"))
+    nav.append(InlineKeyboardButton(f"🚗 {car_index+1}/{total_cars}", callback_data="current"))
     if car_index < total_cars - 1:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"next_{car_index+1}"))
+        nav.append(InlineKeyboardButton("След. ➡️", callback_data=f"next_{car_index+1}"))
     if nav:
         kb.append(nav)
+    
     kb.extend([
         [InlineKeyboardButton("📞 Оставить заявку", callback_data="create_application")],
         [InlineKeyboardButton("⬅️ Назад к каталогу", callback_data="back_to_catalog")]
@@ -253,26 +286,44 @@ async def show_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_filter_params(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🎛 Подбор по параметрам\n\nВыберите параметр для фильтрации:", reply_markup=get_filters_menu())
+    await safe_edit_message_text(query, "🎛 Подбор по параметрам\n\nВыберите параметр для фильтрации:", reply_markup=get_filters_menu())
 
 async def show_all_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     cars = get_cars()
     if not cars:
-        await query.edit_message_text("На данный момент нет доступных автомобилей.")
+        await safe_edit_message_text(query, "На данный момент нет доступных автомобилей.")
         return
     context.user_data['current_cars'] = cars
     context.user_data['current_index'] = 0
     await show_car(query, context, 0)
 
-async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int):
+async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int, photo_index: int = 0):
     cars = context.user_data.get('current_cars', [])
     if not cars or index >= len(cars):
         if hasattr(update, 'edit_message_text'):
             await update.edit_message_text("Автомобиль не найден")
         return
     car = cars[index]
+    
+    # Получаем список фотографий
+    photos = car.get('photos', [])
+    if isinstance(photos, str):
+        photos = [photos]
+    
+    # Фильтруем только существующие фотографии
+    valid_photos = []
+    for photo in photos:
+        if isinstance(photo, str):
+            valid_photos.append(photo)
+    
+    total_photos = len(valid_photos)
+    
+    # Проверяем корректность индекса фотографии
+    if photo_index >= total_photos:
+        photo_index = 0
+    
     caption = f"""🚗 *{car['brand']} {car['model']}*
 
 📅 Год: {car['year']}
@@ -291,8 +342,8 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int):
     # Определяем, является ли update callback_query
     query = update if hasattr(update, 'edit_message_media') else None
     
-    if car.get('photos') and car['photos']:
-        photo_path = car['photos'][0] if isinstance(car['photos'], list) else car['photos']
+    if valid_photos and photo_index < len(valid_photos):
+        photo_path = valid_photos[photo_index]
         
         # Проверяем, это локальный файл или URL
         if photo_path.startswith('http'):
@@ -317,89 +368,100 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int):
                 
                 photo_source = os.path.join(PHOTOS_DIR, downloaded_filename)
             else:
-                # Не удалось скачать, отправляем текст без фото
-                logger.error(f"Не удалось скачать изображение по URL: {photo_path}")
-                if query:
-                    # Удаляем старое сообщение и отправляем новое
-                    try:
-                        await query.message.delete()
-                    except:
-                        pass
-                    await context.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=caption,
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=get_car_navigation_keyboard(index, len(cars))
-                    )
-                else:
-                    await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
-                return
+                # Не удалось скачать, используем placeholder
+                logger.warning(f"Не удалось скачать изображение по URL: {photo_path}, используем placeholder")
+                photo_source = os.path.join(PHOTOS_DIR, "placeholder.jpg")
+                # Продолжаем с placeholder вместо возврата
         else:
             # Это локальный файл
             photo_source = os.path.join(PHOTOS_DIR, photo_path) if not os.path.isabs(photo_path) else photo_path
             if not os.path.exists(photo_source):
-                logger.error(f"Файл не найден: {photo_source}")
-                if query:
-                    # Удаляем старое сообщение и отправляем новое
-                    try:
-                        await query.message.delete()
-                    except:
-                        pass
-                    await context.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=caption,
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=get_car_navigation_keyboard(index, len(cars))
-                    )
-                else:
-                    await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
-                return
+                logger.warning(f"Файл не найден: {photo_source}, используем placeholder")
+                photo_source = os.path.join(PHOTOS_DIR, "placeholder.jpg")
+                # Продолжаем с placeholder
         
         logger.info(f"Отправка фото для автомобиля {car['id']}: {photo_source}")
+        
+        # Проверяем, есть ли сохраненный file_id для этого фото
+        photo_cache_key = f"photo_{car['id']}_{photo_index}"
+        cached_file_id = context.bot_data.get(photo_cache_key)
+        
         try:
-            # Открываем файл для отправки
-            with open(photo_source, 'rb') as photo_file:
+            if query:
                 # Пытаемся отредактировать медиа (если предыдущее сообщение было медиа)
-                if query:
-                    media = InputMediaPhoto(media=photo_file, caption=caption, parse_mode=ParseMode.MARKDOWN)
-                    await query.edit_message_media(media=media, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+                if cached_file_id:
+                    # Используем кэшированный file_id для быстрой отправки
+                    media = InputMediaPhoto(media=cached_file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                    await query.edit_message_media(media=media, reply_markup=get_car_navigation_keyboard(index, len(cars), photo_index, total_photos))
                 else:
-                    # Если это не callback_query, отправляем новое сообщение с фото
-                    await update.message.reply_photo(
+                    # Открываем файл и отправляем
+                    with open(photo_source, 'rb') as photo_file:
+                        media = InputMediaPhoto(media=photo_file, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                        result = await query.edit_message_media(media=media, reply_markup=get_car_navigation_keyboard(index, len(cars), photo_index, total_photos))
+                        # Сохраняем file_id для будущего использования
+                        if result.photo:
+                            context.bot_data[photo_cache_key] = result.photo[-1].file_id
+            else:
+                # Если это не callback_query, отправляем новое сообщение с фото
+                with open(photo_source, 'rb') as photo_file:
+                    result = await update.message.reply_photo(
                         photo=photo_file,
                         caption=caption,
                         parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=get_car_navigation_keyboard(index, len(cars))
+                        reply_markup=get_car_navigation_keyboard(index, len(cars), photo_index, total_photos)
                     )
+                    # Сохраняем file_id
+                    if result.photo:
+                        context.bot_data[photo_cache_key] = result.photo[-1].file_id
         except Exception as e:
             # Если edit_message_media не работает (например, предыдущее сообщение было текстовым),
             # отправляем новое сообщение с фото
             logger.warning(f"Не удалось отредактировать медиа, пробуем отправить новое сообщение: {e}")
             try:
-                with open(photo_source, 'rb') as photo_file:
-                    if query:
-                        # Отправляем новое сообщение с фото
-                        chat_id = query.message.chat_id
-                        bot = context.bot
-                        await bot.send_photo(
+                if query:
+                    # Отправляем новое сообщение с фото
+                    chat_id = query.message.chat_id
+                    bot = context.bot
+                    
+                    if cached_file_id:
+                        # Используем кэш
+                        result = await bot.send_photo(
                             chat_id=chat_id,
-                            photo=photo_file,
+                            photo=cached_file_id,
                             caption=caption,
                             parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=get_car_navigation_keyboard(index, len(cars))
+                            reply_markup=get_car_navigation_keyboard(index, len(cars), photo_index, total_photos)
                         )
-                        # Пытаемся удалить старое сообщение (если возможно)
-                        try:
-                            await query.message.delete()
-                        except:
-                            pass  # Игнорируем ошибку удаления
                     else:
-                        await update.message.reply_photo(
+                        # Загружаем файл
+                        with open(photo_source, 'rb') as photo_file:
+                            result = await bot.send_photo(
+                                chat_id=chat_id,
+                                photo=photo_file,
+                                caption=caption,
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=get_car_navigation_keyboard(index, len(cars), photo_index, total_photos)
+                            )
+                            # Сохраняем file_id
+                            if result.photo:
+                                context.bot_data[photo_cache_key] = result.photo[-1].file_id
+                    
+                    # Пытаемся удалить старое сообщение (если возможно)
+                    try:
+                        await query.message.delete()
+                    except:
+                        pass  # Игнорируем ошибку удаления
+                else:
+                    with open(photo_source, 'rb') as photo_file:
+                        result = await update.message.reply_photo(
                             photo=photo_file,
                             caption=caption,
                             parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=get_car_navigation_keyboard(index, len(cars))
+                            reply_markup=get_car_navigation_keyboard(index, len(cars), photo_index, total_photos)
                         )
+                        # Сохраняем file_id
+                        if result.photo:
+                            context.bot_data[photo_cache_key] = result.photo[-1].file_id
             except Exception as e2:
                 # Если и это не сработало, отправляем текст
                 logger.error(f"Ошибка отправки фото {photo_source}: {e2}")
@@ -413,51 +475,80 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int):
                         chat_id=query.message.chat_id,
                         text=caption,
                         parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=get_car_navigation_keyboard(index, len(cars))
+                        reply_markup=get_car_navigation_keyboard(index, len(cars), photo_index, total_photos)
                     )
                 else:
-                    await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+                    await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars), photo_index, total_photos))
     else:
-        # Если фото нет, отправляем только текст
-        if query:
-            # Удаляем старое сообщение и отправляем новое
-            try:
-                await query.message.delete()
-            except:
-                pass
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=caption,
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=get_car_navigation_keyboard(index, len(cars))
-            )
-        else:
-            await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+        # Если фото нет, используем placeholder для плавного переключения
+        logger.info(f"У автомобиля {car['id']} нет фото, используем placeholder")
+        photo_source = os.path.join(PHOTOS_DIR, "placeholder.jpg")
+        photo_cache_key = f"photo_placeholder"
+        cached_file_id = context.bot_data.get(photo_cache_key)
+        
+        try:
+            if query:
+                # Пытаемся отредактировать медиа
+                if cached_file_id:
+                    media = InputMediaPhoto(media=cached_file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                    await query.edit_message_media(media=media, reply_markup=get_car_navigation_keyboard(index, len(cars), 0, 0))
+                else:
+                    with open(photo_source, 'rb') as photo_file:
+                        media = InputMediaPhoto(media=photo_file, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                        result = await query.edit_message_media(media=media, reply_markup=get_car_navigation_keyboard(index, len(cars), 0, 0))
+                        if result.photo:
+                            context.bot_data[photo_cache_key] = result.photo[-1].file_id
+            else:
+                with open(photo_source, 'rb') as photo_file:
+                    result = await update.message.reply_photo(
+                        photo=photo_file,
+                        caption=caption,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=get_car_navigation_keyboard(index, len(cars), 0, 0)
+                    )
+                    if result.photo:
+                        context.bot_data[photo_cache_key] = result.photo[-1].file_id
+        except Exception as e:
+            # Если не получилось с placeholder, отправляем текст
+            logger.error(f"Ошибка отправки placeholder: {e}")
+            if query:
+                try:
+                    await query.message.delete()
+                except:
+                    pass
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=caption,
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=get_car_navigation_keyboard(index, len(cars), 0, 0)
+                )
+            else:
+                await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars), 0, 0))
 
 async def filter_brand(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🏷 Выберите марку автомобиля:", reply_markup=get_brands_keyboard())
+    await safe_edit_message_text(query, "🏷 Выберите марку автомобиля:", reply_markup=get_brands_keyboard())
 
 async def filter_body(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🚙 Выберите тип кузова:", reply_markup=get_body_types_keyboard())
+    await safe_edit_message_text(query, "🚙 Выберите тип кузова:", reply_markup=get_body_types_keyboard())
 
 async def filter_engine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("⚙️ Выберите тип двигателя:", reply_markup=get_engine_types_keyboard())
+    await safe_edit_message_text(query, "⚙️ Выберите тип двигателя:", reply_markup=get_engine_types_keyboard())
 
 async def filter_transmission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🔧 Выберите коробку передач:", reply_markup=get_transmission_keyboard())
+    await safe_edit_message_text(query, "🔧 Выберите коробку передач:", reply_markup=get_transmission_keyboard())
 
 async def filter_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("💰 Выберите ценовой диапазон:", reply_markup=get_price_ranges_keyboard())
+    await safe_edit_message_text(query, "💰 Выберите ценовой диапазон:", reply_markup=get_price_ranges_keyboard())
 
 async def handle_filter_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -482,7 +573,7 @@ async def handle_filter_selection(update: Update, context: ContextTypes.DEFAULT_
         text = f"✅ Выбран ценовой диапазон: {context.user_data['filters']['price_range']}\n\nВыберите следующий параметр или проверьте наличие:"
     else:
         return
-    await query.edit_message_text(text, reply_markup=get_filters_menu())
+    await safe_edit_message_text(query, text, reply_markup=get_filters_menu())
 
 async def check_availability(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -502,7 +593,7 @@ async def check_availability(update: Update, context: ContextTypes.DEFAULT_TYPE)
         filters_text += f"• Цена: {filters['price_range']}\n"
     if not filters:
         filters_text = "Фильтры не установлены\n"
-    await query.edit_message_text(f"📊 Проверка наличия\n\n{filters_text}\n✅ Доступно {count} авто", reply_markup=get_availability_keyboard(count))
+    await safe_edit_message_text(query, f"📊 Проверка наличия\n\n{filters_text}\n✅ Доступно {count} авто", reply_markup=get_availability_keyboard(count))
 
 async def view_available_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -510,7 +601,7 @@ async def view_available_cars(update: Update, context: ContextTypes.DEFAULT_TYPE
     filters = context.user_data.get('filters', {})
     cars = get_cars(filters)
     if not cars:
-        await query.edit_message_text("По вашим параметрам не найдено доступных автомобилей.")
+        await safe_edit_message_text(query, "По вашим параметрам не найдено доступных автомобилей.")
         return
     context.user_data['current_cars'] = cars
     context.user_data['current_index'] = 0
@@ -520,27 +611,63 @@ async def new_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data['filters'] = {}
-    await query.edit_message_text("🔄 Новый поиск\n\nВыберите параметр для фильтрации:", reply_markup=get_filters_menu())
+    await safe_edit_message_text(query, "🔄 Новый поиск\n\nВыберите параметр для фильтрации:", reply_markup=get_filters_menu())
 
 async def handle_car_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data.startswith('prev_'):
-        await show_car(query, context, int(query.data.split('_')[1]))
+        await show_car(query, context, int(query.data.split('_')[1]), 0)
     elif query.data.startswith('next_'):
-        await show_car(query, context, int(query.data.split('_')[1]))
+        await show_car(query, context, int(query.data.split('_')[1]), 0)
+    elif query.data.startswith('photo_prev_'):
+        parts = query.data.split('_')
+        car_index = int(parts[2])
+        photo_index = int(parts[3])
+        await show_car(query, context, car_index, photo_index)
+    elif query.data.startswith('photo_next_'):
+        parts = query.data.split('_')
+        car_index = int(parts[2])
+        photo_index = int(parts[3])
+        await show_car(query, context, car_index, photo_index)
     elif query.data == 'back_to_catalog':
         await show_catalog(query, context)
 
 async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Главное меню:", reply_markup=get_main_menu())
+    try:
+        await query.edit_message_text("Главное меню:", reply_markup=get_main_menu())
+    except Exception as e:
+        # Если не получилось отредактировать (например, сообщение с медиа), удаляем и отправляем новое
+        logger.warning(f"Не удалось отредактировать сообщение: {e}")
+        try:
+            await query.message.delete()
+        except:
+            pass
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Главное меню:",
+            reply_markup=get_main_menu()
+        )
 
 async def back_to_main_from_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Главное меню:", reply_markup=get_main_menu())
+    try:
+        await query.edit_message_text("Главное меню:", reply_markup=get_main_menu())
+    except Exception as e:
+        # Если не получилось отредактировать (например, сообщение с медиа), удаляем и отправляем новое
+        logger.warning(f"Не удалось отредактировать сообщение: {e}")
+        try:
+            await query.message.delete()
+        except:
+            pass
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Главное меню:",
+            reply_markup=get_main_menu()
+        )
 
 async def back_to_filters(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -552,7 +679,7 @@ NAME, PHONE, PREFERENCES = range(3)
 async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("📋 Оставить заявку\n\nПожалуйста, укажите ваше имя:", reply_markup=get_application_cancel())
+    await safe_edit_message_text(query, "📋 Оставить заявку\n\nПожалуйста, укажите ваше имя:", reply_markup=get_application_cancel())
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -594,7 +721,7 @@ async def cancel_application(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.pop('application_name', None)
     context.user_data.pop('application_phone', None)
     context.user_data.pop('application_preferences', None)
-    await query.edit_message_text("Заявка отменена.", reply_markup=get_main_menu())
+    await safe_edit_message_text(query, "Заявка отменена.", reply_markup=get_main_menu())
     return ConversationHandler.END
 
 # ========== АДМИН-ПАНЕЛЬ ==========
@@ -630,7 +757,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user = update.effective_user
     
     if not is_admin(user.id, user.username):
-        await query.edit_message_text("❌ У вас нет доступа к админ-панели.")
+        await safe_edit_message_text(query, "❌ У вас нет доступа к админ-панели.")
         return
     
     # admin_add_car обрабатывается через ConversationHandler
@@ -639,7 +766,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         data = load_data()
         cars = data.get("cars", [])
         if not cars:
-            await query.edit_message_text("📋 Список пуст.", reply_markup=get_admin_menu())
+            await safe_edit_message_text(query, "📋 Список пуст.", reply_markup=get_admin_menu())
             return
         
         text = "📋 *Список автомобилей:*\n\n"
@@ -650,13 +777,13 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if len(cars) > 10:
             text += f"\n... и еще {len(cars) - 10} автомобилей"
         
-        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
+        await safe_edit_message_text(query, text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
     
     elif query.data == "admin_delete_car":
         data = load_data()
         cars = data.get("cars", [])
         if not cars:
-            await query.edit_message_text("📋 Список пуст.", reply_markup=get_admin_menu())
+            await safe_edit_message_text(query, "📋 Список пуст.", reply_markup=get_admin_menu())
             return
         
         kb = []
@@ -667,7 +794,8 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )])
         kb.append([InlineKeyboardButton("⬅️ Назад", callback_data="admin_back")])
         
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             "🗑 *Удаление автомобиля*\n\nВыберите автомобиль для удаления:",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(kb)
@@ -677,7 +805,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         data = load_data()
         cars = data.get("cars", [])
         if not cars:
-            await query.edit_message_text("📋 Список пуст.", reply_markup=get_admin_menu())
+            await safe_edit_message_text(query, "📋 Список пуст.", reply_markup=get_admin_menu())
             return
         
         kb = []
@@ -689,17 +817,19 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )])
         kb.append([InlineKeyboardButton("⬅️ Назад", callback_data="admin_back")])
         
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             "📸 *Управление фотографиями*\n\nВыберите автомобиль:",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(kb)
         )
     
     elif query.data == "admin_exit":
-        await query.edit_message_text("✅ Выход из админ-панели.", reply_markup=get_main_menu())
+        await safe_edit_message_text(query, "✅ Выход из админ-панели.", reply_markup=get_main_menu())
     
     elif query.data == "admin_back":
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             "🔐 *Админ-панель*\n\nВыберите действие:",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_admin_menu()
@@ -1227,7 +1357,7 @@ def main():
     app.add_handler(CallbackQueryHandler(check_availability, pattern="^check_availability$"))
     app.add_handler(CallbackQueryHandler(view_available_cars, pattern="^view_available_cars$"))
     app.add_handler(CallbackQueryHandler(new_search, pattern="^new_search$"))
-    app.add_handler(CallbackQueryHandler(handle_car_navigation, pattern="^(prev_|next_)"))
+    app.add_handler(CallbackQueryHandler(handle_car_navigation, pattern="^(prev_|next_|photo_prev_|photo_next_)"))
     app.add_handler(CallbackQueryHandler(show_catalog, pattern="^back_to_catalog$"))
     app.add_handler(CallbackQueryHandler(back_to_main, pattern="^back_to_main$"))
     app.add_handler(CallbackQueryHandler(back_to_main_from_catalog, pattern="^back_to_main_from_catalog$"))
@@ -1279,7 +1409,7 @@ def main():
             ADMIN_COLOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_car_color)],
             ADMIN_MILEAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_car_mileage)],
             ADMIN_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_car_description)],
-            ADMIN_FEATURES: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_car_features)],
+            ADMIN_FEATURES: [MessageHandler(filters.TEXT, admin_add_car_features)],
         },
         fallbacks=[CallbackQueryHandler(admin_cancel, pattern="^admin_cancel$")]
     )
