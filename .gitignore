@@ -38,8 +38,8 @@ ENV/
 .env.local
 
 # Bot token and sensitive data
-config.py
 *.py.py
+newtgapi.txt
 
 # OS
 .DS_Store
