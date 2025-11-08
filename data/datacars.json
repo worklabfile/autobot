@@ -18,7 +18,7 @@
         "AUX, USB"
       ],
       "photos": [
-        "https://www.automoli.com/common/vehicles/_assets/img/gallery/f66/toyota-corolla-xi-e170-facelift-2016.jpg"
+        "car_1_1.jpg"
       ],
       "is_available": true
     },
@@ -42,6 +42,29 @@
       "photos": [
         "https://via.placeholder.com/400x300/ff4444/ffffff?text=BMW+X5"
       ],
+      "is_available": true
+    },
+    {
+      "photos": [
+        "car_3_1.jpg",
+        "car_3_2.jpg",
+        "car_3_3.jpg"
+      ],
+      "brand": "Lada",
+      "model": "Lada",
+      "year": 2025,
+      "price": 10000,
+      "body_type": "Седан",
+      "engine_type": "Дизель",
+      "engine_volume": 1.99999,
+      "transmission": "Автомат",
+      "color": "Золотой",
+      "mileage": 20000,
+      "description": "Хорошее авто",
+      "features": [
+        "1"
+      ],
+      "id": 3,
       "is_available": true
     }
   ],

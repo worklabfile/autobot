@@ -6,6 +6,8 @@ import json
 import os
 import logging
 import copy
+import requests
+from io import BytesIO
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ConversationHandler, ContextTypes
 from telegram.constants import ParseMode
@@ -45,6 +47,37 @@ def get_next_car_id():
     if not cars:
         return 1
     return max(car.get("id", 0) for car in cars) + 1
+
+def download_image_from_url(url, car_id, photo_index):
+    """Скачивает изображение по URL и сохраняет локально"""
+    try:
+        ensure_photos_dir()
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        # Определяем расширение файла
+        content_type = response.headers.get('content-type', '')
+        if 'jpeg' in content_type or 'jpg' in content_type:
+            ext = '.jpg'
+        elif 'png' in content_type:
+            ext = '.png'
+        elif 'webp' in content_type:
+            ext = '.webp'
+        else:
+            ext = '.jpg'  # По умолчанию
+        
+        filename = f"car_{car_id}_{photo_index}{ext}"
+        filepath = os.path.join(PHOTOS_DIR, filename)
+        
+        # Сохраняем файл
+        with open(filepath, 'wb') as f:
+            f.write(response.content)
+        
+        logger.info(f"Изображение скачано: {url} -> {filepath}")
+        return filename
+    except Exception as e:
+        logger.error(f"Ошибка скачивания изображения {url}: {e}")
+        return None
 
 def is_admin(user_id, username=None):
     """Проверка, является ли пользователь админом"""
@@ -260,41 +293,80 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int):
     
     if car.get('photos') and car['photos']:
         photo_path = car['photos'][0] if isinstance(car['photos'], list) else car['photos']
+        
         # Проверяем, это локальный файл или URL
         if photo_path.startswith('http'):
-            # Это URL
-            photo_source = photo_path
-        else:
-            # Это локальный файл
-            photo_source = os.path.join(PHOTOS_DIR, photo_path) if not os.path.isabs(photo_path) else photo_path
-            if not os.path.exists(photo_source):
-                logger.warning(f"Файл не найден: {photo_source}, пробуем как URL")
-                photo_source = photo_path
-        
-        logger.info(f"Отправка фото для автомобиля {car['id']}: {photo_source}")
-        try:
-            # Пытаемся отредактировать медиа (если предыдущее сообщение было медиа)
-            if query:
-                # Открываем файл если это локальный путь
-                if os.path.exists(photo_source) and not photo_source.startswith('http'):
-                    photo_file = InputFile(photo_source)
-                    media = InputMediaPhoto(media=photo_file, caption=caption, parse_mode=ParseMode.MARKDOWN)
-                else:
-                    media = InputMediaPhoto(media=photo_source, caption=caption, parse_mode=ParseMode.MARKDOWN)
-                await query.edit_message_media(media=media, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+            # Это URL - скачиваем и сохраняем локально
+            logger.info(f"Обнаружен URL фото: {photo_path}, скачиваем...")
+            downloaded_filename = download_image_from_url(photo_path, car['id'], 1)
+            
+            if downloaded_filename:
+                # Обновляем данные в JSON
+                data = load_data()
+                for c in data.get("cars", []):
+                    if c.get("id") == car['id']:
+                        if isinstance(c.get('photos'), list):
+                            # Заменяем URL на локальный файл
+                            for i, p in enumerate(c['photos']):
+                                if p == photo_path:
+                                    c['photos'][i] = downloaded_filename
+                                    break
+                        save_data(data)
+                        logger.info(f"Обновлен JSON: URL заменен на {downloaded_filename}")
+                        break
+                
+                photo_source = os.path.join(PHOTOS_DIR, downloaded_filename)
             else:
-                # Если это не callback_query, отправляем новое сообщение с фото
-                if os.path.exists(photo_source) and not photo_source.startswith('http'):
-                    photo_file = InputFile(photo_source)
-                    await update.message.reply_photo(
-                        photo=photo_file,
-                        caption=caption,
+                # Не удалось скачать, отправляем текст без фото
+                logger.error(f"Не удалось скачать изображение по URL: {photo_path}")
+                if query:
+                    # Удаляем старое сообщение и отправляем новое
+                    try:
+                        await query.message.delete()
+                    except:
+                        pass
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=caption,
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=get_car_navigation_keyboard(index, len(cars))
                     )
                 else:
+                    await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+                return
+        else:
+            # Это локальный файл
+            photo_source = os.path.join(PHOTOS_DIR, photo_path) if not os.path.isabs(photo_path) else photo_path
+            if not os.path.exists(photo_source):
+                logger.error(f"Файл не найден: {photo_source}")
+                if query:
+                    # Удаляем старое сообщение и отправляем новое
+                    try:
+                        await query.message.delete()
+                    except:
+                        pass
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=caption,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=get_car_navigation_keyboard(index, len(cars))
+                    )
+                else:
+                    await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+                return
+        
+        logger.info(f"Отправка фото для автомобиля {car['id']}: {photo_source}")
+        try:
+            # Открываем файл для отправки
+            with open(photo_source, 'rb') as photo_file:
+                # Пытаемся отредактировать медиа (если предыдущее сообщение было медиа)
+                if query:
+                    media = InputMediaPhoto(media=photo_file, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                    await query.edit_message_media(media=media, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+                else:
+                    # Если это не callback_query, отправляем новое сообщение с фото
                     await update.message.reply_photo(
-                        photo=photo_source,
+                        photo=photo_file,
                         caption=caption,
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=get_car_navigation_keyboard(index, len(cars))
@@ -304,12 +376,11 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int):
             # отправляем новое сообщение с фото
             logger.warning(f"Не удалось отредактировать медиа, пробуем отправить новое сообщение: {e}")
             try:
-                if query:
-                    # Отправляем новое сообщение с фото
-                    chat_id = query.message.chat_id
-                    bot = context.bot
-                    if os.path.exists(photo_source) and not photo_source.startswith('http'):
-                        photo_file = InputFile(photo_source)
+                with open(photo_source, 'rb') as photo_file:
+                    if query:
+                        # Отправляем новое сообщение с фото
+                        chat_id = query.message.chat_id
+                        bot = context.bot
                         await bot.send_photo(
                             chat_id=chat_id,
                             photo=photo_file,
@@ -317,31 +388,14 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int):
                             parse_mode=ParseMode.MARKDOWN,
                             reply_markup=get_car_navigation_keyboard(index, len(cars))
                         )
+                        # Пытаемся удалить старое сообщение (если возможно)
+                        try:
+                            await query.message.delete()
+                        except:
+                            pass  # Игнорируем ошибку удаления
                     else:
-                        await bot.send_photo(
-                            chat_id=chat_id,
-                            photo=photo_source,
-                            caption=caption,
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=get_car_navigation_keyboard(index, len(cars))
-                        )
-                    # Пытаемся удалить старое сообщение (если возможно)
-                    try:
-                        await query.message.delete()
-                    except:
-                        pass  # Игнорируем ошибку удаления
-                else:
-                    if os.path.exists(photo_source) and not photo_source.startswith('http'):
-                        photo_file = InputFile(photo_source)
                         await update.message.reply_photo(
                             photo=photo_file,
-                            caption=caption,
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=get_car_navigation_keyboard(index, len(cars))
-                        )
-                    else:
-                        await update.message.reply_photo(
-                            photo=photo_source,
                             caption=caption,
                             parse_mode=ParseMode.MARKDOWN,
                             reply_markup=get_car_navigation_keyboard(index, len(cars))
@@ -350,13 +404,33 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int):
                 # Если и это не сработало, отправляем текст
                 logger.error(f"Ошибка отправки фото {photo_source}: {e2}")
                 if query:
-                    await query.edit_message_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+                    # Удаляем старое сообщение и отправляем новое
+                    try:
+                        await query.message.delete()
+                    except:
+                        pass
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=caption,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=get_car_navigation_keyboard(index, len(cars))
+                    )
                 else:
                     await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
     else:
         # Если фото нет, отправляем только текст
         if query:
-            await query.edit_message_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
+            # Удаляем старое сообщение и отправляем новое
+            try:
+                await query.message.delete()
+            except:
+                pass
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=caption,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_car_navigation_keyboard(index, len(cars))
+            )
         else:
             await update.message.reply_text(caption, parse_mode=ParseMode.MARKDOWN, reply_markup=get_car_navigation_keyboard(index, len(cars)))
 
@@ -1171,15 +1245,6 @@ def main():
     )
     app.add_handler(app_handler)
     
-    # Админ-панель
-    app.add_handler(CommandHandler("admin", admin_command))
-    app.add_handler(CallbackQueryHandler(admin_menu_handler, pattern="^admin_(list_cars|delete_car|manage_photos|exit|back)$"))
-    app.add_handler(CallbackQueryHandler(admin_delete_car_handler, pattern="^admin_delete_\\d+$"))
-    app.add_handler(CallbackQueryHandler(admin_photos_handler, pattern="^admin_photos_\\d+$"))
-    app.add_handler(CallbackQueryHandler(admin_add_photo_handler, pattern="^admin_add_photo$"))
-    app.add_handler(CallbackQueryHandler(admin_delete_photo_handler, pattern="^admin_delete_photo$"))
-    app.add_handler(CallbackQueryHandler(admin_delete_photo_confirm, pattern="^admin_del_photo_\\d+$"))
-    
     # ConversationHandler для добавления автомобиля
     async def admin_add_car_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Начало добавления автомобиля"""
@@ -1216,8 +1281,7 @@ def main():
             ADMIN_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_car_description)],
             ADMIN_FEATURES: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_car_features)],
         },
-        fallbacks=[CallbackQueryHandler(admin_cancel, pattern="^admin_cancel$")],
-        per_message=True
+        fallbacks=[CallbackQueryHandler(admin_cancel, pattern="^admin_cancel$")]
     )
     app.add_handler(admin_car_handler)
     
@@ -1227,10 +1291,17 @@ def main():
         states={
             ADMIN_PHOTO: [MessageHandler(filters.PHOTO, admin_photo_received)],
         },
-        fallbacks=[MessageHandler(filters.TEXT & filters.Regex("^/cancel$"), admin_cancel)],
-        per_message=True
+        fallbacks=[MessageHandler(filters.TEXT & filters.Regex("^/cancel$"), admin_cancel)]
     )
     app.add_handler(admin_photo_handler)
+    
+    # Админ-панель (обычные обработчики должны быть ПОСЛЕ ConversationHandler)
+    app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(CallbackQueryHandler(admin_menu_handler, pattern="^admin_(list_cars|delete_car|manage_photos|exit|back)$"))
+    app.add_handler(CallbackQueryHandler(admin_delete_car_handler, pattern="^admin_delete_\\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_photos_handler, pattern="^admin_photos_\\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_delete_photo_handler, pattern="^admin_delete_photo$"))
+    app.add_handler(CallbackQueryHandler(admin_delete_photo_confirm, pattern="^admin_del_photo_\\d+$"))
     
     ensure_photos_dir()
     logger.info("Бот запускается...")
