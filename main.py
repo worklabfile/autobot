@@ -11,6 +11,7 @@ from io import BytesIO
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ConversationHandler, ContextTypes
 from telegram.constants import ParseMode
+from telegram import error as telegram_error
 from config import BOT_TOKEN, ADMIN_ID, BRANDS, BODY_TYPES, ENGINE_TYPES, TRANSMISSIONS, PRICE_RANGES
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -304,7 +305,7 @@ def get_car_navigation_keyboard(car_index, total_cars, photo_index=0, total_phot
         kb.append(nav)
     
     kb.extend([
-        [InlineKeyboardButton("📞 Оставить заявку", callback_data="create_application")],
+        [InlineKeyboardButton("📞 Оставить заявку", callback_data=f"create_application_{car_index}")],
         [InlineKeyboardButton("⬅️ Назад к каталогу", callback_data="back_to_catalog")]
     ])
     return InlineKeyboardMarkup(kb)
@@ -318,9 +319,18 @@ def get_contacts_keyboard():
 def get_application_cancel():
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отмена", callback_data="cancel_application")]])
 
+def get_application_skip():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭ Пропустить", callback_data="skip_preferences")],
+        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_application")]
+    ])
+
 # Обработчики
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    # Логируем информацию о пользователе (полезно для получения ID админа)
+    logger.info(f"Пользователь {user.first_name} (@{user.username or 'no_username'}) запустил бота. ID: {user.id}")
+    
     await update.message.reply_text(
         f"👋 Добро пожаловать, {user.first_name}!\n\n🚗 Добро пожаловать в автосалон AutoHouse!\n\nВыберите нужный раздел:",
         reply_markup=get_main_menu()
@@ -352,7 +362,8 @@ async def show_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🏢 Адрес: {contacts.get('address', 'не указан')}
 🕒 График работы: {contacts.get('work_hours', 'не указан')}
 
-Свяжитесь с нами или оставьте заявку! 🚗"""
+Свяжитесь с нами или оставьте заявку! 🚗 
+https://yandex.by/maps/-/CLv3FXoT"""
     if hasattr(update, 'message') and update.message:
         await update.message.reply_text(text, reply_markup=get_contacts_keyboard())
     else:
@@ -754,40 +765,135 @@ NAME, PHONE, PREFERENCES = range(3)
 async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
+    # Проверяем, есть ли информация о выбранном автомобиле
+    if query.data.startswith('create_application_'):
+        car_index = int(query.data.split('_')[2])
+        cars = context.user_data.get('current_cars', [])
+        if cars and car_index < len(cars):
+            context.user_data['selected_car'] = cars[car_index]
+    
     await safe_edit_message_text(query, "📋 Оставить заявку\n\nПожалуйста, укажите ваше имя:", reply_markup=get_application_cancel())
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['application_name'] = update.message.text
+    name = update.message.text
+    context.user_data['application_name'] = name
+    logger.info(f"Получено имя клиента: {name}")
     await update.message.reply_text("📞 Теперь укажите ваш номер телефона:", reply_markup=get_application_cancel())
     return PHONE
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['application_phone'] = update.message.text
-    await update.message.reply_text("💭 Укажите ваши предпочтения по автомобилю или имеющиеся вопросы:", reply_markup=get_application_cancel())
+    phone = update.message.text
+    context.user_data['application_phone'] = phone
+    logger.info(f"Получен телефон клиента: {phone}")
+    await update.message.reply_text("Укажите ваши предпочтения по автомобилю или имеющиеся вопросы:", reply_markup=get_application_skip())
     return PREFERENCES
 
+async def send_application_to_admin(bot, user, app_data):
+    """Отправка заявки админу"""
+    # Формируем сообщение для админа
+    preferences = app_data.get('application_preferences', 'не указано')
+    
+    application_text = f"""📋 *НОВАЯ ЗАЯВКА ОТ КЛИЕНТА*
+
+👤 *Имя клиента:* {app_data['application_name']}
+📞 *Телефон:* {app_data['application_phone']}
+💭 *Комментарий:* {preferences}
+
+━━━━━━━━━━━━━━━━━━━━
+👤 *Telegram профиль:*
+• Имя: {user.first_name} {user.last_name or ''}
+• Username: @{user.username or 'не указан'}
+• ID: `{user.id}`"""
+    
+    # Добавляем информацию о выбранном автомобиле, если есть
+    selected_car = app_data.get('selected_car')
+    if selected_car:
+        application_text += f"""
+
+━━━━━━━━━━━━━━━━━━━━
+🚗 *ИНТЕРЕСУЮЩИЙ АВТОМОБИЛЬ:*
+• Марка/Модель: *{selected_car.get('brand')} {selected_car.get('model')}*
+• Год: {selected_car.get('year')}
+• Цена: *{selected_car.get('price', 0):,} BYN*
+• Кузов: {selected_car.get('body_type')}
+• Двигатель: {selected_car.get('engine_type')}, {selected_car.get('engine_volume')} л
+• КПП: {selected_car.get('transmission')}
+• Цвет: {selected_car.get('color', 'не указан')}
+• Пробег: {selected_car.get('mileage', 0):,} км"""
+    
+    # Отправляем уведомление админу
+    try:
+        admin_id = int(ADMIN_ID)
+        await bot.send_message(
+            chat_id=admin_id, 
+            text=application_text, 
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info(f"Заявка успешно отправлена админу {admin_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка отправки заявки админу: {e}")
+        logger.info(f"ЗАЯВКА (не доставлена): {application_text}")
+        return False
+
 async def get_preferences(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['application_preferences'] = update.message.text
+    preferences = update.message.text
+    context.user_data['application_preferences'] = preferences
+    logger.info(f"Получены предпочтения клиента: {preferences}")
+    
     user = update.effective_user
     app_data = context.user_data
-    application_text = f"""📋 *Новая заявка от пользователя*
-
-👤 *Имя:* {app_data['application_name']}
-📞 *Телефон:* {app_data['application_phone']}
-💭 *Предпочтения/вопросы:* {app_data['application_preferences']}
-
-👤 *Профиль:* {user.first_name} {user.last_name or ''}
-🆔 ID: {user.id}
-📱 Username: @{user.username or 'не указан'}"""
-    try:
-        await update.message.bot.send_message(chat_id=ADMIN_ID, text=application_text, parse_mode=ParseMode.MARKDOWN)
-    except Exception as e:
-        logger.error(f"Ошибка отправки заявки: {e}")
-    await update.message.reply_text("✅ *Спасибо за ваше обращение!*\n\nВ ближайшее время менеджер с вами свяжется для уточнения деталей.\n\nХорошего дня! 😊", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu())
+    
+    # Отправляем заявку админу
+    await send_application_to_admin(context.bot, user, app_data)
+    
+    # Отправляем подтверждение клиенту
+    await update.message.reply_text(
+        "✅ *Спасибо за вашу заявку!*\n\n"
+        "Наш менеджер свяжется с вами в ближайшее время для уточнения деталей.\n\n"
+        "Хорошего дня! 😊", 
+        parse_mode=ParseMode.MARKDOWN, 
+        reply_markup=get_main_menu()
+    )
+    
+    # Очищаем данные
     context.user_data.pop('application_name', None)
     context.user_data.pop('application_phone', None)
     context.user_data.pop('application_preferences', None)
+    context.user_data.pop('selected_car', None)
+    return ConversationHandler.END
+
+async def skip_preferences(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик пропуска комментария"""
+    query = update.callback_query
+    await query.answer()
+    
+    user = update.effective_user
+    app_data = context.user_data
+    
+    # Устанавливаем пустое значение для предпочтений
+    context.user_data['application_preferences'] = 'не указано'
+    logger.info(f"Клиент {user.first_name} пропустил комментарий")
+    
+    # Отправляем заявку админу
+    await send_application_to_admin(context.bot, user, app_data)
+    
+    # Отправляем подтверждение клиенту
+    await query.message.reply_text(
+        "✅ *Спасибо за вашу заявку!*\n\n"
+        "Наш менеджер свяжется с вами в ближайшее время для уточнения деталей.\n\n"
+        "Хорошего дня! 😊", 
+        parse_mode=ParseMode.MARKDOWN, 
+        reply_markup=get_main_menu()
+    )
+    
+    # Очищаем данные
+    context.user_data.pop('application_name', None)
+    context.user_data.pop('application_phone', None)
+    context.user_data.pop('application_preferences', None)
+    context.user_data.pop('selected_car', None)
     return ConversationHandler.END
 
 async def cancel_application(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -796,6 +902,7 @@ async def cancel_application(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.pop('application_name', None)
     context.user_data.pop('application_phone', None)
     context.user_data.pop('application_preferences', None)
+    context.user_data.pop('selected_car', None)
     await safe_edit_message_text(query, "Заявка отменена.", reply_markup=get_main_menu())
     return ConversationHandler.END
 
@@ -1439,14 +1546,16 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_filters, pattern="^back_to_filters$"))
     
     app_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_application, pattern="^create_application$")],
+        entry_points=[CallbackQueryHandler(start_application, pattern="^create_application")],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
             PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
-            PREFERENCES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_preferences)],
+            PREFERENCES: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_preferences),
+                CallbackQueryHandler(skip_preferences, pattern="^skip_preferences$")
+            ],
         },
-        fallbacks=[CallbackQueryHandler(cancel_application, pattern="^cancel_application$")],
-        per_message=True
+        fallbacks=[CallbackQueryHandler(cancel_application, pattern="^cancel_application$")]
     )
     app.add_handler(app_handler)
     
@@ -1509,8 +1618,40 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_delete_photo_confirm, pattern="^admin_del_photo_\\d+$"))
     
     ensure_photos_dir()
+    
+    # Добавляем обработчик ошибок
+    async def error_handler(update, context):
+        """Обработчик ошибок"""
+        error = context.error
+        if isinstance(error, telegram_error.Conflict):
+            logger.error("Обнаружен конфликт: другой экземпляр бота уже запущен!")
+            logger.error("Бот останавливается автоматически.")
+            # Автоматически останавливаем приложение
+            try:
+                await context.application.stop()
+            except RuntimeError:
+                logger.info("Приложение уже остановлено")
+            return
+        
+        logger.error(f"Необработанная ошибка: {error}")
+        if update:
+            try:
+                if hasattr(update, 'message') and update.message:
+                    await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+                elif hasattr(update, 'callback_query') and update.callback_query:
+                    await update.callback_query.message.reply_text("Произошла ошибка. Попробуйте позже.")
+            except:
+                pass
+    
+    app.add_error_handler(error_handler)
+    
     logger.info("Бот запускается...")
-    app.run_polling()
+    try:
+        app.run_polling()
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен пользователем")
+    except Exception as e:
+        logger.error(f"Ошибка запуска бота: {e}")
 
 if __name__ == "__main__":
     main()
