@@ -18,7 +18,8 @@
         "AUX, USB"
       ],
       "photos": [
-        "car_1_1.jpg"
+        "car_1_1.jpg",
+        "car_1_2.jpg"
       ],
       "is_available": true
     },
@@ -45,24 +46,19 @@
       "is_available": true
     },
     {
-      "photos": [
-        "car_3_1.jpg",
-        "car_3_2.jpg"
-      ],
-      "brand": "Lada",
-      "model": "Vesta",
-      "year": 2025,
-      "price": 40000,
-      "body_type": "Универсал",
+      "photos": [],
+      "brand": "11",
+      "model": "1",
+      "year": 1,
+      "price": 1,
+      "body_type": "Седан",
       "engine_type": "Бензин",
-      "engine_volume": 12345.0,
-      "transmission": "Вариатор",
-      "color": "123",
-      "mileage": 1120319,
-      "description": "sdlkfsklfj",
-      "features": [
-        "123"
-      ],
+      "engine_volume": 1.0,
+      "transmission": "Механика",
+      "color": "1",
+      "mileage": 1,
+      "description": "1",
+      "features": [],
       "id": 3,
       "is_available": true
     }

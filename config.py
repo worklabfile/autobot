@@ -8,6 +8,10 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8300492583:AAEmIN3CdfyUsasn92UcgW9aW5y7pxQaHuw")
 ADMIN_ID = os.getenv("ADMIN_ID", "911971063")
 
+# Пути к файлам
+CARS_FILE = "data/datacars.json"
+PHOTOS_DIR = "data/photos"
+
 BRANDS = ["Toyota", "BMW", "Mercedes", "Audi", "Volkswagen", "Hyundai", "Kia", "Nissan"]
 BODY_TYPES = ["Седан", "Внедорожник", "Хэтчбек", "Универсал", "Купе", "Минивэн", "Пикап"]
 ENGINE_TYPES = ["Бензин", "Дизель", "Электро", "Гибрид"]
