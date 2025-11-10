@@ -12,7 +12,7 @@ from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKe
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ConversationHandler, ContextTypes
 from telegram.constants import ParseMode
 from telegram import error as telegram_error
-from config import BOT_TOKEN, ADMIN_ID, BRANDS, BODY_TYPES, ENGINE_TYPES, TRANSMISSIONS, PRICE_RANGES
+from config import BOT_TOKEN, ADMIN_IDS, BRANDS, BODY_TYPES, ENGINE_TYPES, TRANSMISSIONS, PRICE_RANGES
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -102,14 +102,20 @@ async def safe_edit_message_text(query, text, reply_markup=None, parse_mode=None
 
 def is_admin(user_id, username=None):
     """Проверка, является ли пользователь админом"""
-    if isinstance(ADMIN_ID, str) and ADMIN_ID.startswith("@"):
-        # Если ADMIN_ID это username
-        return username and username.lower() == ADMIN_ID[1:].lower()
-    try:
-        admin_id_int = int(ADMIN_ID) if isinstance(ADMIN_ID, str) else ADMIN_ID
-        return user_id == admin_id_int
-    except:
-        return False
+    for admin in ADMIN_IDS:
+        admin = admin.strip()
+        if isinstance(admin, str) and admin.startswith("@"):
+            # Если ADMIN_ID это username
+            if username and username.lower() == admin[1:].lower():
+                return True
+        else:
+            try:
+                admin_id_int = int(admin)
+                if user_id == admin_id_int:
+                    return True
+            except:
+                continue
+    return False
 
 def get_cars(filters=None):
     """Получение автомобилей с фильтрацией"""
@@ -305,8 +311,7 @@ def get_car_navigation_keyboard(car_index, total_cars, photo_index=0, total_phot
         kb.append(nav)
     
     kb.extend([
-        [InlineKeyboardButton("📞 Оставить заявку", callback_data=f"create_application_{car_index}")],
-        [InlineKeyboardButton("⬅️ Назад к каталогу", callback_data="back_to_catalog")]
+        [InlineKeyboardButton("📞 Оставить заявку", callback_data=f"create_application_{car_index}")]
     ])
     return InlineKeyboardMarkup(kb)
 

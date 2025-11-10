@@ -46,7 +46,9 @@
       "is_available": true
     },
     {
-      "photos": [],
+      "photos": [
+        "car_3_1.jpg"
+      ],
       "brand": "11",
       "model": "1",
       "year": 1,
@@ -60,6 +62,23 @@
       "description": "1",
       "features": [],
       "id": 3,
+      "is_available": true
+    },
+    {
+      "photos": [],
+      "brand": "1",
+      "model": "1",
+      "year": 1,
+      "price": 1,
+      "body_type": "Седан",
+      "engine_type": "Бензин",
+      "engine_volume": 1.0,
+      "transmission": "Вариатор",
+      "color": "1",
+      "mileage": 1,
+      "description": "1",
+      "features": [],
+      "id": 4,
       "is_available": true
     }
   ],
