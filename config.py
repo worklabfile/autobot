@@ -5,7 +5,7 @@ load_dotenv()
 
 # ВАЖНО: Замените на ваш реальный токен от @BotFather
 # Получите токен: напишите @BotFather в Telegram -> /newbot или /token
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8300492583:AAEmIN3CdfyUsasn92UcgW9aW5y7pxQaHuw")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8531805942:AAH17N3mmpYnABgzQV266NRKHMx6eLfBro4")
 ADMIN_ID = os.getenv("ADMIN_ID", "911971063")
 
 # Пути к файлам
