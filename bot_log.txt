@@ -1,0 +1,30 @@
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
+Error while getting Updates: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Обнаружен конфликт: другой экземпляр бота уже запущен!
+Бот останавливается автоматически.
