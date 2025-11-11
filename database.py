@@ -42,15 +42,15 @@ def get_cars(filters=None):
         if filters.get('price_range'):
             price = car.get('price', 0)
             pr = filters['price_range']
-            if pr == "До 5000 BYN" and price > 5000:
+            if pr == "До 5000 $" and price > 5000:
                 match = False
-            elif pr == "5000 - 10000 BYN" and (price < 5000 or price > 10000):
+            elif pr == "5000 - 10000 $" and (price < 5000 or price > 10000):
                 match = False
-            elif pr == "10000 - 20000 BYN" and (price < 10000 or price > 20000):
+            elif pr == "10000 - 20000 $" and (price < 10000 or price > 20000):
                 match = False
-            elif pr == "20000 - 50000 BYN" and (price < 20000 or price > 50000):
+            elif pr == "20000 - 50000 $" and (price < 20000 or price > 50000):
                 match = False
-            elif pr == "Свыше 50000 BYN" and price < 50000:
+            elif pr == "Свыше 50000 $" and price < 50000:
                 match = False
         if match:
             filtered.append(car)

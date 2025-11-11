@@ -251,7 +251,7 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int, photo
     caption = f"""*{car['brand']} {car['model']}*
 
 Год: {car['year']}
-Цена: *{car['price']:,} BYN*
+Цена: *{car['price']:,} $*
 Цвет: {car.get('color', 'не указан')}
 Пробег: {car.get('mileage', 0):,} км
 Двигатель: {car['engine_type']}, {car.get('engine_volume', 0)} л
@@ -435,7 +435,7 @@ Telegram профиль:
 Интересующий автомобиль:
 • Марка/Модель: {selected_car.get('brand')} {selected_car.get('model')}
 • Год: {selected_car.get('year')}
-• Цена: {selected_car.get('price', 0):,} BYN
+• Цена: {selected_car.get('price', 0):,} $
 • Кузов: {selected_car.get('body_type')}
 • Двигатель: {selected_car.get('engine_type')}, {selected_car.get('engine_volume')} л
 • КПП: {selected_car.get('transmission')}

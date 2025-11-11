@@ -139,15 +139,15 @@ def get_cars(filters=None):
         if filters.get('price_range'):
             price = car.get('price', 0)
             pr = filters['price_range']
-            if pr == "До 5000 BYN" and price > 5000:
+            if pr == "До 5000 $" and price > 5000:
                 match = False
-            elif pr == "5000 - 10000 BYN" and (price < 5000 or price > 10000):
+            elif pr == "5000 - 10000 $" and (price < 5000 or price > 10000):
                 match = False
-            elif pr == "10000 - 20000 BYN" and (price < 10000 or price > 20000):
+            elif pr == "10000 - 20000 $" and (price < 10000 or price > 20000):
                 match = False
-            elif pr == "20000 - 50000 BYN" and (price < 20000 or price > 50000):
+            elif pr == "20000 - 50000 $" and (price < 20000 or price > 50000):
                 match = False
-            elif pr == "Свыше 50000 BYN" and price < 50000:
+            elif pr == "Свыше 50000 $" and price < 50000:
                 match = False
         if match:
             filtered.append(car)
@@ -418,7 +418,7 @@ async def show_car(update, context: ContextTypes.DEFAULT_TYPE, index: int, photo
     caption = f"""🚗 *{car['brand']} {car['model']}*
 
 📅 Год: {car['year']}
-💰 Цена: *{car['price']:,} BYN*
+💰 Цена: *{car['price']:,} $*
 🎨 Цвет: {car.get('color', 'не указан')}
 📏 Пробег: {car.get('mileage', 0):,} км
 ⚙️ Двигатель: {car['engine_type']}, {car.get('engine_volume', 0)} л
@@ -821,7 +821,7 @@ async def send_application_to_admin(bot, user, app_data):
 🚗 *ИНТЕРЕСУЮЩИЙ АВТОМОБИЛЬ:*
 • Марка/Модель: *{selected_car.get('brand')} {selected_car.get('model')}*
 • Год: {selected_car.get('year')}
-• Цена: *{selected_car.get('price', 0):,} BYN*
+• Цена: *{selected_car.get('price', 0):,} $*
 • Кузов: {selected_car.get('body_type')}
 • Двигатель: {selected_car.get('engine_type')}, {selected_car.get('engine_volume')} л
 • КПП: {selected_car.get('transmission')}
@@ -959,7 +959,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text = "📋 *Список автомобилей:*\n\n"
         for car in cars[:10]:  # Показываем первые 10
             status = "✅" if car.get("is_available", True) else "❌"
-            text += f"{status} *{car.get('id')}.* {car.get('brand')} {car.get('model')} - {car.get('price', 0):,} BYN\n"
+            text += f"{status} *{car.get('id')}.* {car.get('brand')} {car.get('model')} - {car.get('price', 0):,} $\n"
         
         if len(cars) > 10:
             text += f"\n... и еще {len(cars) - 10} автомобилей"
@@ -1253,7 +1253,7 @@ async def admin_add_car_features(update: Update, context: ContextTypes.DEFAULT_T
 • Марка: {new_car['brand']}
 • Модель: {new_car['model']}
 • Год: {new_car['year']}
-• Цена: {new_car['price']:,} BYN
+• Цена: {new_car['price']:,} $
 • Кузов: {new_car['body_type']}
 • Двигатель: {new_car['engine_type']}, {new_car['engine_volume']} л
 • КПП: {new_car['transmission']}

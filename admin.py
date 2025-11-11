@@ -49,7 +49,7 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text = "📋 *Список автомобилей:*\n\n"
         for car in cars[:10]:  # Показываем первые 10
             status = "✅" if car.get("is_available", True) else "❌"
-            text += f"{status} *{car.get('id')}.* {car.get('brand')} {car.get('model')} - {car.get('price', 0):,} BYN\n"
+            text += f"{status} *{car.get('id')}.* {car.get('brand')} {car.get('model')} - {car.get('price', 0):,} $\n"
 
         if len(cars) > 10:
             text += f"\n... и еще {len(cars) - 10} автомобилей"
@@ -582,7 +582,7 @@ async def admin_add_car_features(update: Update, context: ContextTypes.DEFAULT_T
 • Марка: {new_car['brand']}
 • Модель: {new_car['model']}
 • Год: {new_car['year']}
-• Цена: {new_car['price']:,} BYN
+• Цена: {new_car['price']:,} $
 • Кузов: {new_car['body_type']}
 • Двигатель: {new_car['engine_type']}, {new_car['engine_volume']} л
 • КПП: {new_car['transmission']}
